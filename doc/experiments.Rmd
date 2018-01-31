@@ -1,0 +1,151 @@
+---
+title: "SPOOKY data experiments"
+author: "Jerome Kafrouni"
+date: "January 31, 2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Introduction
+
+## Setup the libraries
+
+```{r, message = F, warning = F}
+packages.used <- c("ggplot2", "dplyr", "tibble", "tidyr",  "stringr", "tidytext", "topicmodels", "wordcloud", "ggridges")
+
+# check packages that need to be installed.
+packages.needed <- setdiff(packages.used, intersect(installed.packages()[,1], packages.used))
+
+# install additional packages
+if(length(packages.needed) > 0) {
+  install.packages(packages.needed, dependencies = TRUE, repos = 'http://cran.us.r-project.org')
+}
+
+library(ggplot2)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(stringr)
+library(tidytext)
+library(topicmodels)
+library(wordcloud)
+library(ggridges)
+
+source("../lib/multiplot.R")
+```
+
+## Read in the data
+The following code assumes that the dataset `spooky.csv` lives in a `data` folder (and that we are inside a `docs` folder).
+
+```{r}
+spooky <- read.csv('../data/spooky.csv', as.is = TRUE)
+```
+
+## An overview of the data structure and content
+
+Let's first remind ourselves of the structure of the data.
+```{r}
+head(spooky)
+summary(spooky)
+```
+
+```{r}
+sum(is.na(spooky))
+spooky$author <- as.factor(spooky$author)
+```
+
+## Data Cleaning
+
+```{r}
+# Make a table with one word per row and remove `stop words` (i.e. the common words).
+spooky_wrd <- unnest_tokens(spooky, word, text)
+spooky_wrd <- anti_join(spooky_wrd, stop_words, by = "word")
+```
+
+## Word Frequency
+
+Now we study some of the most common words in the entire data set.  With the below code we plot the fifty most common words in the entire datset. We see that "time", "life", and "night" all appear frequently.
+
+```{r}
+# Words is a list of words, and freqs their frequencies
+words <- count(group_by(spooky_wrd, word))$word
+freqs <- count(group_by(spooky_wrd, word))$n
+
+head(sort(freqs, decreasing = TRUE))
+# wordcloud(words, freqs, max.words = 50, color = c("purple4", "red4", "black"))
+```
+
+
+```{r}
+# Counts number of times each author used each word.
+author_words <- count(group_by(spooky_wrd, word, author))
+
+# Counts number of times each word was used.
+all_words    <- rename(count(group_by(spooky_wrd, word)), all = n)
+
+author_words <- left_join(author_words, all_words, by = "word")
+author_words <- arrange(author_words, desc(all))
+author_words <- ungroup(head(author_words, 81))
+  
+ggplot(author_words) +
+  geom_col(aes(reorder(word, all, FUN = min), n, fill = author)) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~ author) +
+  theme(legend.position = "none")
+```
+
+## Punctuation
+
+```{r}
+spooky <- cbind(spooky, commas = mapply(function(x) str_count(x, ","), spooky$text))
+spooky <- cbind(spooky, semi_columns = mapply(function(x) str_count(x, ";"), spooky$text))
+spooky <- cbind(spooky, question = mapply(function(x) str_count(x, "\\?") > 0, spooky$text))
+spooky <- cbind(spooky, exclamation = mapply(function(x) str_count(x, "\\!") > 0, spooky$text))
+aggregate(commas ~ author, spooky, mean)
+aggregate(semi_columns ~ author, spooky, mean)
+aggregate(question ~ author, spooky, sum)
+aggregate(exclamation ~ author, spooky, sum)
+```
+
+## Dialogue
+
+```{r}
+spooky <- cbind(spooky, dialogue = mapply(function(x) str_count(x, '\\"') > 0, spooky$text))
+spooky[spooky$dialogue == TRUE,]
+# pb: some sentences have a " in the beginning but not at the end ??
+aggregate(dialogue ~ author, spooky, sum)
+```
+
+## Names in sentences
+
+```{r}
+# TODO (but maybe in POS)
+# Number of uppercase except first character of the sentence:
+spooky <- cbind(spooky, uppercase = mapply(function(x) str_count(x, ".[A-Z]"), spooky$text))
+aggregate(uppercase ~ author, spooky, mean)
+summary(spooky[spooky$author == 'EAP',])
+spooky[spooky$uppercase == 45,]
+
+hist(spooky[spooky$author == 'EAP',][, c('uppercase')])
+boxplot(spooky[spooky$author == 'EAP',][, c('uppercase')])
+```
+
+
+# Part of Speech
+
+```{r}
+install.packages("openNLP")
+install.packages("openNLPmodels.en", repos="http://datacube.wu.ac.at/" , type="source")
+library(openNLP)
+library(openNLPmodels.en)
+```
+
+```{r}
+devtools::install_github("bnosac/RDRPOSTagger")
+devtools::install_github("ropensci/tokenizers")
+library("RDRPOSTagger")
+library("tokenizers")
+```
+
