@@ -243,7 +243,7 @@ x <- with(spooky, readability(text, author))
 plot(x)
 ```
 
-On average, the authors are almost as readable accross all sentences. Let's look at readability per sentence.
+On average, the authors are almost as readable accross all sentences. HP Lovecraft is slightly less readable, which means that students might need one additionnal year of studies to read his work with ease. Let's look at readability per sentence.
 
 ```{r}
 x2 <- with(spooky, readability(text, list(author, id)))
@@ -479,7 +479,6 @@ ggplot(male_female_word_counts) +
   coord_flip() +
   facet_wrap(~ author) +
   theme(legend.position = "none")
-  
 ```
 
 We can see a clear difference between the authors: Edgar Allan Poe and HP Lovecraft seem to refer more often to men than to women, whereas it is much less the case for Mary Shelly which uses almost as often female pronouns than male pronouns.
