@@ -3,8 +3,8 @@ title: "Project1 - Spooky Analysis"
 author: "Jerome Kafrouni-jk4100"
 date: "February 5, 2018"
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 ---
 
 # Section 0: Installing and loading packages
