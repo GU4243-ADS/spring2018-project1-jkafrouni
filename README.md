@@ -55,6 +55,9 @@ One last analysis is to use our part of speech tagger not only for entities but 
 
 ![image](figs/freq_pos.png)
 
+We can see that Edgar Allan Poe uses much more nouns (nn), HP Lovecraft seems to use a lot of adjectives (jj) while Mary Shelley can be characterized by her use of determiners (dt).
+
+To fully understand this last graph, check out the abreviations commonly used in Part of Speech tagging, at: https://www.ling.upenn.edu/courses/Fall_2003/ling001/penn_treebank_pos.html.  
 
 ```
 proj/
