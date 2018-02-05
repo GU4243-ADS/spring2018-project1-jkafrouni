@@ -1,0 +1,621 @@
+---
+title: "Project1 - Spooky Analysis"
+author: "Jerome Kafrouni-jk4100"
+date: "February 5, 2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Section 0: Installing and loading packages
+
+```{r}
+packages.used <- c("ggplot2", "dplyr", "tibble", "tidyr",  "stringr", "tidytext", "topicmodels", "wordcloud", "ggridges")
+
+# check packages that need to be installed.
+packages.needed <- setdiff(packages.used, intersect(installed.packages()[,1], packages.used))
+
+# install additional packages
+if(length(packages.needed) > 0) {
+  install.packages(packages.needed, dependencies = TRUE, repos = 'http://cran.us.r-project.org')
+}
+
+library(ggplot2)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(stringr)
+library(tidytext)
+library(topicmodels)
+library(wordcloud)
+library(ggridges)
+
+source("../lib/multiplot.R")
+
+# install.packages("openNLP")
+# install.packages("openNLPmodels.en", repos="http://datacube.wu.ac.at/" , type="source")
+# install.packages("NLP")
+library(rJava)
+library(NLP)
+library(openNLP)
+library(openNLPmodels.en)
+# NLP and ggplot2 both have a function named "annotate" which can cause a problem
+# loading NLP after ggplot seems to fix the pb ??
+
+# install.packages("textstem")
+library(textstem)
+
+# install.packages('qdapDictionaries')
+library(qdapDictionaries)
+
+library(lexicon)
+
+# install.packages("syllable")
+# install.packages("readability")
+library(syllable)
+library(readability)
+
+# install.packages("lexicon")
+# library(lexicon)
+# available_data()
+# common_names
+
+# install.packages('randomForest')
+library(randomForest)
+```
+
+# Section 1: Data preparation
+
+## 1.1 - Read in the data
+
+The following code assumes that the dataset `spooky.csv` lives in a `data` folder (and that we are inside a `docs` folder).
+
+```{r}
+spooky <- read.csv('../data/spooky.csv', as.is = TRUE)
+```
+
+## 1.2 - Tokenization
+
+We tokenize the text in multiple ways that will be useful in our analysis: Unigrams, with or without stopwords, bigrams.
+
+```{r}
+# Make a table with one word per row and remove `stop words` (i.e. the common words).
+spooky_wrd <- unnest_tokens(spooky, word, text)
+spooky_wrd <- anti_join(spooky_wrd, stop_words, by = "word")
+
+spooky_wrd_with_stopwords <- unnest_tokens(spooky, word, text)
+
+spooky_bigrams <- unnest_tokens(spooky, bigram, text, token = "ngrams", n = 2)
+```
+
+## 1.3 - Lemmatization
+
+We perform lemmatization, ie reduce the inflected forms of words to the corresponding lemma. For example, if an author uses "is", "are" and "was", these three words will be reduced to the same lemma "be". Lemmatization is more costly to perform than stemming, which doesn't take the context into account, but since our corpus is relatively small, we can perform lemmatization in a decent time.
+
+```{r}
+# the textstem package has two main methods, lemmatize_words or lemmatize_sentences
+spooky$lemmatized_text <- lemmatize_strings(spooky$text) # takes 30 sec
+```
+
+We generate bigrams on the lemmas that we just extracted:
+
+```{r}
+spooky_lemmatized_bigrams <- unnest_tokens(spooky, bigram, lemmatized_text, token = "ngrams", n = 2)
+```
+
+
+# Section 2: Comparing the authors quantitatively
+
+We will extract numerical features from the data to compare the authors numerically.
+
+## 2.1 - Generating and plotting the features
+
+### 2.1.1 - Punctuation
+
+```{r}
+spooky <- cbind(spooky, commas = mapply(function(x) str_count(x, ","), spooky$text))
+spooky <- cbind(spooky, semi_colons = mapply(function(x) str_count(x, ";"), spooky$text))
+spooky <- cbind(spooky, colons = mapply(function(x) str_count(x, ":"), spooky$text)) # not interesting
+spooky <- cbind(spooky, question = mapply(function(x) str_count(x, "\\?") > 0, spooky$text))
+spooky <- cbind(spooky, exclamation = mapply(function(x) str_count(x, "\\!") > 0, spooky$text)) # not interesting
+aggregate(commas ~ author, spooky, mean)
+aggregate(semi_colons ~ author, spooky, mean)
+aggregate(colons ~ author, spooky, mean)
+
+aggregate(question ~ author, spooky, mean)
+aggregate(exclamation ~ author, spooky, mean)
+
+# Plot densities (they do not sum to 1 but it's not a problem)
+
+p1 <- ggplot(spooky[spooky$commas < 15,], aes(x = commas, y = ..density.., fill = author)) + 
+      xlim(c(0, 15)) +
+      geom_histogram(binwidth=1) +
+      theme(legend.position = "none")
+
+p2 <- ggplot(spooky[spooky$semi_colons < 6,], aes(x = semi_colons, y = ..density.., fill = author)) +
+      xlim(c(0, 6)) +
+      ylim(c(0,1)) +
+      geom_histogram(binwidth=1) +
+      theme(legend.position = "none")
+
+p3 <- ggplot(aggregate(question ~ author, spooky, sum), aes(x = author, y = question, fill = author)) +
+      geom_bar(stat="identity") +
+      theme(legend.position = "none")
+
+# p4 <- ggplot(spooky[spooky$colons < 3,], aes(x = colons, y = ..density.., fill = author)) +
+#       xlim(c(0, 3)) +
+#       ylim(c(0,0.25)) +
+#       geom_histogram() +
+#       theme(legend.position = "none")
+      
+
+# p5 <- ggplot(aggregate(exclamation ~ author, spooky, sum), aes(x = author, y = exclamation, fill = author)) +
+#       geom_bar(stat="identity") +
+#       theme(legend.position = "none")
+
+layout <- matrix(c(1, 2, 1, 3), 2, 2, byrow = TRUE)
+multiplot(p1, p2, p3, layout = layout)
+```
+
+We notice that these sentences contain no exclamation mark. This result is odd, and might come from how the data was collected or encoded (to generate the csv file).
+We also notice that authors almost do not use colons, which was not expected.
+For this reason, we did not plot these two variables.
+
+Among these three variables, one that is very interesting is questions: HP Lovecraft seems to use much less questions than Mary Shelly or Edgar Allan Poe.
+
+### 2.1.2 - Punctuation words ratio
+
+The use of punctuation seems to be quite specific to each author. We looked at how each author uses each punctuation sign, let's now look at how often they use punctuation in general.
+
+To compute this feature, we split the strings using the regex "\\W+" This is the most direct way to do it,
+Otherwise we could use the dataframe spooky_wrd (group by id, count, and join with spooky)
+```{r}
+spooky <- cbind(spooky, punctuation = mapply(function(x) str_count(x, "[?!,;:.-]") / (str_count(x, "\\W+") + 1), spooky$text))
+
+ggplot(spooky, aes(x = punctuation, y = ..density.., fill = author)) + 
+      geom_histogram() +
+      xlim(c(0,1))
+```
+
+### 2.1.3 - Uppercase
+
+One interesting feature may also be how often do authors use uppercase letters. To normalize this feature, we'll actually look at the ratio of uppercase vs lowercase characters in each sentence. This will also prevent from outliers, since it seems that some sentences have not been split correctly (see 2.1.4 - sentence length, below).
+```{r}
+# Number of uppercase characters divided by length of sentence
+spooky <- cbind(spooky, uppercase_freq = mapply(function(x) str_count(x, "[A-Z]") / str_length(x), spooky$text))
+aggregate(uppercase_freq ~ author, spooky, mean)
+
+ggplot(spooky[spooky$uppercase_freq < 0.15,]) +
+  geom_histogram(aes(x = uppercase_freq, y = ..density.., fill = author)) +
+  xlim(c(0, 0.15))
+```
+
+### 2.1.4 - Sentence length
+
+```{r}
+spooky$sen_length <- str_length(spooky$text)
+
+ggplot(spooky, aes(x = sen_length, y = ..density.., fill = author)) + 
+  geom_histogram() +
+  xlim(c(0,700))
+
+ggplot(spooky[spooky$sen_length < 1200,], aes(x = author, y = sen_length, fill = author)) + 
+  geom_boxplot()
+```
+
+### 2.1.5 - Average word length in sentence
+
+Now that we have compared lengths of sentences, let's look at length of the words themselves. Instead of just looking at words individually (which we have done in the in-class tutorial), we'll look at the average length of words in each sentence.
+```{r}
+lengths <- spooky_wrd  %>% group_by(id) %>% summarise(avg_word_length = mean(str_length(word)))
+spooky <- inner_join(lengths, spooky, by="id")
+
+ggplot(spooky, aes(x = avg_word_length, y = ..density.., fill = author)) + 
+  geom_histogram() +
+  xlim(c(3,13))
+```
+
+### 2.1.6 - Readability
+
+The last feature that we'll generate is a summary of the previous features concerning string lengths:
+There exist several indexes to measure how "readable" sentences are, which compare the number of syllables of the words used and the length of the sentence. These indexes estimate the years of formal education a person needs to understand the text on the first reading.
+
+The fog index is commonly used to confirm that text can be read easily by the intended audience. Texts for a wide audience generally need a fog index less than 12. Texts requiring near-universal understanding generally need an index less than 8.
+
+Gunning Fog: 12 = High school senior | 14 = College sophomore | 17 = College graduate
+
+```{r}
+# with(spooky[spooky$author == 'EAP',], readability(text, NULL)) # 11.1 score | 14.6 Gunning Fog
+# with(spooky[spooky$author == 'MWS',], readability(text, NULL)) # 11.5 score | 14.7 Gunning Fog
+# with(spooky[spooky$author == 'HPL',], readability(text, NULL)) # 11.5 score | 14.6 Gunning Fog
+
+x <- with(spooky, readability(text, author))
+plot(x)
+```
+
+On average, the authors are almost as readable accross all sentences. let's look at readability per sentence.
+
+```{r}
+x2 <- with(spooky, readability(text, list(author, id)))
+
+ggplot(x2, aes(x = Gunning_Fog_Index, fill = author)) +
+      geom_histogram(binwidth=1) +
+      xlim(c(0, 40)) + # there are outliers
+      theme(legend.position = "none")
+```
+
+## 2.2 - How well do these features characterize the authors ?
+
+### 2.2.1 - Metrics: TODO
+
+### 2.2.2 - Classification
+
+We'll use a popular Machine Learning model used for classification, a Random Forest, to try to classify the sentences using *only* the numerical features generated (i.e. without including features about the words themselves). Even though we'll not reach a very high accuracy, we might get quite good results.
+
+Features we'll use: commas, semi_coloms, sen_length, avg_word_length, punctuation, uppercase_freq, (question, exclamation ??).
+
+#### 2.2.2.1 - Multiclass model (EAP vs MWS vs HPL)
+
+```{r}
+# Split train test:
+## Shuffle the rows
+spooky <- spooky[sample(nrow(spooky)),]
+
+## 75% of the sample size
+smp_size <- floor(0.75 * nrow(spooky))
+
+train_ind <- sample(seq_len(nrow(spooky)), size = smp_size)
+
+train <- spooky[train_ind, ]
+test <- spooky[-train_ind, ]
+
+# Fit random forest:
+fit <- randomForest(as.factor(author) ~ commas + semi_colons + sen_length + uppercase_freq + punctuation + avg_word_length,
+                      data=train, 
+                      importance=TRUE, 
+                      ntree=2000)
+
+# Predict:
+test_pred <- predict(fit, test)
+
+table(test_pred, test$author)
+mean(test_pred == test$author) # 50 % accuracy = better than 1/3
+```
+
+We get an accuracy of approximately 50%. Since we have three classes, we should compare this accuracy to a 33% base accuracy, which we would get by classifying randomly the sentences. This result shows that the numerical feature that we generated give some insights about how the authors write.
+
+#### 2.2.2.2 - One vs All model
+
+Let's now look at each author individually: We'll re-train the model but now look at each author and try to classify a sentence by an attribute which is whether it was written by this author or by any of the two other authors.
+
+```{r}
+# We generate 3 new features that are similar to a "one hot encoding", 
+# Each author yields a binary feature that indicates if a sentence is his or not
+spooky <- cbind(spooky, MWS = mapply(function(x) x == 'MWS', spooky$author))
+spooky <- cbind(spooky, EAP = mapply(function(x) x == 'EAP', spooky$author))
+spooky <- cbind(spooky, HPL = mapply(function(x) x == 'HPL', spooky$author))
+
+## 75% of the sample size
+smp_size <- floor(0.75 * nrow(spooky))
+
+train_ind <- sample(seq_len(nrow(spooky)), size = smp_size)
+
+train <- spooky[train_ind, ]
+test <- spooky[-train_ind, ]
+
+# Fit random forest for HPL:
+fit <- randomForest(as.factor(HPL) ~  commas + semi_colons + sen_length + uppercase_freq + punctuation + avg_word_length,
+                      data=train, 
+                      importance=TRUE, 
+                      ntree=2000)
+
+test_pred <- predict(fit, test)
+
+importance(fit)
+table(test_pred, test$HPL)
+mean(test_pred == test$HPL)
+
+# Fit random forest for MWS:
+fit <- randomForest(as.factor(MWS) ~  commas + semi_colons + sen_length + uppercase_freq + punctuation + avg_word_length,
+                      data=train, 
+                      importance=TRUE, 
+                      ntree=2000)
+
+test_pred <- predict(fit, test)
+
+importance(fit)
+table(test_pred, test$MWS)
+mean(test_pred == test$MWS)
+
+# Fit random forest for HPL:
+fit <- randomForest(as.factor(HPL) ~  commas + semi_colons + sen_length + uppercase_freq + punctuation + avg_word_length,
+                      data=train, 
+                      importance=TRUE, 
+                      ntree=2000)
+
+test_pred <- predict(fit, test)
+
+importance(fit)
+table(test_pred, test$HPL)
+mean(test_pred == test$HPL)
+# MWS: 70 % accuracy, EAP: 65 %, HPL: 73 %
+```
+
+We see that our accuracy varies depending on the author, which means that some authors are less characterized by the numerical features we created than others. Note that the class are not totally balanced (we have more examples from Mary Shelly): we could drop some examples to make sure that we train on the same number of examples of each class, yet this doesn't affect our results significantly.
+
+If our goal was actually to perform classification, this study shows us that adding these features to features such as tf-idf scores, which are more informative, could significantly improve the results.
+
+
+# Section 3: Vocabulary
+
+## 3.1 - Word frequency and TF-IDF
+
+```{r}
+# #### CODE FROM THE IN-CLASS TUTORIAL ####
+# Words is a list of words, and freqs their frequencies
+words <- count(group_by(spooky_wrd, word))$word
+freqs <- count(group_by(spooky_wrd, word))$n
+# head(sort(freqs, decreasing = TRUE))
+# wordcloud(words, freqs, max.words = 50, color = c("purple4", "red4", "black"))
+```
+
+```{r}
+# #### CODE FROM THE IN-CLASS TUTORIAL ####
+# Counts number of times each author used each word.
+author_words <- count(group_by(spooky_wrd, word, author))
+
+# Counts number of times each word was used.
+all_words    <- rename(count(group_by(spooky_wrd, word)), all = n)
+
+author_words <- left_join(author_words, all_words, by = "word")
+author_words <- arrange(author_words, desc(all))
+author_words <- ungroup(head(author_words, 81))
+  
+ggplot(author_words) +
+  geom_col(aes(reorder(word, all, FUN = min), n, fill = author)) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~ author) +
+  theme(legend.position = "none")
+```
+
+## 3.2 - TF-IDF with lemmas
+
+We can compute TF-IDF and perform the same analysis on lemmas instead of words. Some lemmas that are not represented in the top words plotted above may appear, because they were split into too many different words before.
+
+Yet, I have performed this analysis, which gives the same results, and therefore the code is not shown is this notebook.
+
+We can see in the figue above (top TF-IDF words), that the best words are actually not often verbs, which is the group on which lemmatization has the most impact, and are words that are commonly used in singular and not plural. Therefore, it is not astonishing that performing TF-IDF on lemmas instead of words gives the same results.
+
+## 3.3 - Names
+
+### 3.3.1 - Use of names
+
+When we look at the most frequent words of each author, we can see that a lot of these words are names. Let's look at this into more details by counting the number of first names used in the sentences.
+To do so, we use a dataset "common_names" from the package lexicon. It contains 1990 U.S. census data on first names.
+
+```{r}
+# We have reduced author_words to the most frequent words, we must therefore recreate it here:
+author_words <- count(group_by(spooky_wrd, word, author))
+
+is.name <- function(word) word %in% common_names
+author_words$is_name <- is.name(author_words$word)
+author_words %>% group_by(author) %>% summarise(sum(is_name))
+author_words %>% group_by(author) %>% summarise(mean(is_name))
+```
+
+We can see that HP Lovecraft uses slightly more names than the other authors. Yet, we need to be very careful with this analysis: 
+First, our dataset is from 1990, therefore might not contain some names that were used at the time these texts were written. 
+Also, we only look at first names, but the authors may use last name quite often ("Mr. xxx" ...); if we assumed that all authors use "names" in general (ie first names or last names) as frequently, then we could conclude that HP Lovecraft uses first names more than the two other authors who use last names more. Yet, we do not know yet the distributions of names in general.
+Lastly, the authors might use fictionnal first names that are not present in our dataset but might also not be in an older census.
+
+We'll have a more general approach on names in Section 4 when we will do Part of Speech, which identifies last names, fictionnal names, old names, etc.
+
+
+## 3.4 - Diversity of the vocabulary
+
+Let's look at how the authors use the diversity of the english vocabulary.
+
+### 3.4.1 - Size of author's vocabulary
+
+How many different (unique) words does each author use ?
+```{r}
+EAP_words_count <- spooky_wrd[spooky_wrd$author == 'EAP',] %>% group_by(word) %>% summarise(count = n())
+HPL_words_count <- spooky_wrd[spooky_wrd$author == 'HPL',] %>% group_by(word) %>% summarise(count = n())
+MWS_words_count <- spooky_wrd[spooky_wrd$author == 'MWS',] %>% group_by(word) %>% summarise(count = n())
+
+# nb of unique words / total nb of words used: 
+dim(EAP_words_count)[1] / dim(spooky_wrd[spooky_wrd$author == 'EAP',])[1]
+dim(HPL_words_count)[1] / dim(spooky_wrd[spooky_wrd$author == 'HPL',])[1]
+dim(MWS_words_count)[1] / dim(spooky_wrd[spooky_wrd$author == 'MWS',])[1]
+
+ # how many times is a word used on average
+mean(EAP_words_count$count)
+mean(HPL_words_count$count)
+mean(MWS_words_count$count)
+```
+
+We can see that Mary Shelly has a poorer vocabulary, ie she has a smaller core vocabulary and uses the same words often.
+
+### 3.4.2 - Made up words / Old words
+
+Let's look at whether the words that our three authors used are present in a modern dictionnary. This will tell us two things: first, if the authors tend to use made up words (which they are known to do, see: https://blog.oxforddictionaries.com/2014/08/20/inventive-words-worlds-edgar-allan-poe-h-p-lovecraft/); also, whether they use relatively old words that are no longer in a modern dictionnary (which we woud expect more from Mary Shelley and Edgar Allan Poe, who lived almost a century before HP Lovecraft).
+
+We use the dictionnary GradyAugmented from the lexicon package, which is a very large dataset of 120,000 words, therefore quite extensive, of english words.  
+```{r}
+is.word  <- function(x) x %in% GradyAugmented # or use any dataset from package
+author_words <- count(group_by(spooky_wrd, word, author))
+author_words$exists <- is.word(author_words$word)
+author_words %>% group_by(author) %>% summarise(mean(exists)) # percentage of words per author that are in dictionnary
+```
+We can see that Mary Shelley uses 6 % more words that are in our dictionnary. This is not surprising at all ! Edgar Allan Poe and HP Lovecraft are known for this (see link above), and actually created words that are now used commonly, which we could observe if we had a dataset of words from the 19th century (which I haven't been able to find unfortunately).
+
+### 3.4.3 - Words used by only one author:
+
+Here the idea is to look at words (lemmas actually) that one author uses and the others don't. Look at the best TF-IDF of these words. This will show which words are deeply correlated with an author and part of their writing style.
+
+```{r}
+unique_wrd_EAP <- anti_join(spooky_wrd, spooky_wrd[spooky_wrd$author == 'EAP',], spooky_wrd[spooky_wrd$author != 'EAP',], by = "lemma")
+length(unique(unique_wrd_EAP[, c("lemma")])) # 7078
+
+unique_wrd_MWS <- anti_join(spooky_wrd, spooky_wrd[spooky_wrd$author == 'MWS',], spooky_wrd[spooky_wrd$author != 'MWS',], by = "lemma")
+length(unique(unique_wrd_MWS[, c("lemma")])) # 10276
+
+unique_wrd_HPL <- anti_join(spooky_wrd, spooky_wrd[spooky_wrd$author == 'HPL',], spooky_wrd[spooky_wrd$author != 'HPL',], by = "lemma")
+length(unique(unique_wrd_HPL[, c("lemma")])) # 7493
+```
+
+
+## 3.5 - Male vs Female representation
+
+The last analysis is on how and how often are men and women represented by the three authors.
+The goal is to find whether some author speak more about men or women, if they make them do or say particular things, if women speak more about emotions etc.
+
+### 3.5.1 - Her vs She:
+
+```{r}
+author_words_with_stopwords <- count(group_by(spooky_wrd_with_stopwords, word, author))
+male_female_word_counts <- author_words_with_stopwords[author_words_with_stopwords$word %in% c('he', 'she', 'him', 'her', 'his'),]
+
+ggplot(male_female_word_counts) +
+  geom_col(aes(reorder(word, n, FUN = min), n, fill = author)) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~ author) +
+  theme(legend.position = "none")
+  
+```
+
+We can see a clear difference between the authors: Edgar Allan Poe and HP Lovecraft seem to refer more often to men than to women, whereas it is much less the case for Mary Shelly which uses almost as often female pronouns than male pronouns.
+
+### 3.5.2 - Bi-grams male vs female
+
+Since we have computed bi-grams, let's look at what words typically follow the pronoun "he" vs the pronoun "she", which will tell us about actions or feelings that men and women have or do in each author's work.
+
+```{r}
+
+plot_male_female <- function(author) {
+      pronouns <- c("he", "she")
+    bigram_counts <- spooky_bigrams[spooky_bigrams$author == author,] %>%
+        count(bigram, sort = TRUE) %>%
+        separate(bigram, c("word1", "word2"), sep = " ") %>%
+        filter(word1 %in% pronouns) %>%
+        count(word1, word2, wt = n, sort = TRUE) %>%
+        rename(total = nn)
+
+    bigram_counts
+
+    word_ratios <- bigram_counts %>%
+        group_by(word2) %>%
+        filter(sum(total) > 10) %>%
+        ungroup() %>%
+        spread(word1, total, fill = 0) %>%
+        mutate_if(is.numeric, funs((. + 1) / sum(. + 1))) %>%
+        mutate(logratio = log2(she / he)) %>%
+        arrange(desc(logratio))
+
+    word_ratios %>% 
+        arrange(abs(logratio))
+
+    word_ratios %>%
+        mutate(abslogratio = abs(logratio)) %>%
+        group_by(logratio < 0) %>%
+        top_n(15, abslogratio) %>%
+        ungroup() %>%
+        mutate(word = reorder(word2, logratio)) %>%
+        ggplot(aes(word, logratio, color = logratio < 0)) +
+        geom_segment(aes(x = word, xend = word,
+                         y = 0, yend = logratio), 
+                     size = 1.1, alpha = 0.6) +
+        geom_point(size = 3.5) +
+        coord_flip() +
+        labs(x = NULL, 
+             y = "Relative appearance after 'she' compared to 'he'",
+             title = paste("Words paired with 'he' and 'she' in ", author, "'s work")) +
+        scale_color_discrete(name = "", labels = c("More 'she'", "More 'he'")) +
+        scale_y_continuous(breaks = seq(-3, 3),
+                           labels = c("0.125x", "0.25x", "0.5x", 
+                                      "Same", "2x", "4x", "8x"))
+}
+
+plot_male_female("HPL")
+plot_male_female("MWS")
+plot_male_female("EAP")
+```
+
+# Section 4: Sentence structure
+
+In this last section, we look at the functions of words or groups of words rather than words themselves, ie we look at structures of sentences and not vocabulary itself.
+
+## 4.1 - Dialogue
+
+First, let's look at how often do the authors use dialogue. To do so, we'll spot quotation marks "xxx" to identify sentences as containing dialogues.
+
+```{r}
+spooky <- cbind(spooky, dialogue = mapply(function(x) str_count(x, '\\"'), spooky$text))
+aggregate(dialogue ~ author, spooky, mean)
+```
+
+We can see that Edgar Allan Poe uses dialogue far more often, more than 10% of his sentences contain a quotation mark ! HP Lovecraft uses dialogue 5 times less, and Mary Shelly only twice less.
+
+## 4.2 - Entities
+
+Let's now look at how often entities are mentioned in the text, and in particular persons. This will extend the basic approach that we had in Section 3, where we looked at words that were names. Here, we look at the sentences to identify if words are entities, using a Part-of-speech tagger. This technique is far more precise since it doesn't rely on a particular dataset of names. As for lemmatization, entity recognition is quite expensive and takes some time to run. [NOTE: On Mac OS X, you might have trouble running this due to some extra steps needed to run rJava. See Section 0.]
+```{r}
+sent_token_annotator <- Maxent_Sent_Token_Annotator()
+word_token_annotator <- Maxent_Word_Token_Annotator()
+entity_annotator <- Maxent_Entity_Annotator(kind="person")
+
+contains_entity <- function(s) {
+  a2 <- annotate(s, list(sent_token_annotator, word_token_annotator))
+  a3 <- annotate(s, entity_annotator, a2)
+  length(subset(a3, type == "entity")) > 0
+}
+
+spooky <- cbind(spooky, has_entity = mapply(contains_entity, spooky$text))
+aggregate(has_entity ~ author, spooky, mean) # HPL and MWS use more entities
+```
+
+We can see that HP Lovecraft and Mary Shelly use 3 % more entities than Edgar Allan Poe. This result is quite surprising, given that we saw earlier that Edgar Allan Poe uses dialogue more often, and we would expect sentences containing dialogue to be more likely contain entities.
+Yet, our analysis on dialogue was quite unprecise (depends on the data collection and preprocessing that generated the csv...).
+
+## 4.3 - Full Part-of-Speech tagging:
+
+The ultimate analysis that we'll do is to fully tag the sentences with the part-of-speech tagger that we just used for entities. This will give great insight on how the authors construct their sentences.
+
+### 4.3.1 - Split into tags
+
+```{r}
+pos_tag_annotator <- Maxent_POS_Tag_Annotator()
+
+posify <- function(s) {
+  # given a string, replaces each word by corresponding POS tag
+  a1 <- annotate(s, list(sent_token_annotator, word_token_annotator))
+  a2 <- annotate(s, pos_tag_annotator, a1)
+  tags <- sapply(a2$features, `[[`, "POS")
+  do.call(paste, c(as.list(tags), sep=" "))
+}
+
+spooky <- cbind(spooky, pos = mapply(posify, spooky$text), stringsAsFactors=FALSE)
+spooky_pos <- unnest_tokens(spooky, tag, pos)
+```
+
+### 4.3.2 - Tags frequency:
+
+```{r}
+# Counts number of times each author used each word.
+author_pos <- count(group_by(spooky_pos, tag, author))
+
+all_pos <- rename(count(group_by(spooky_pos, tag)), all = n)
+author_pos <- left_join(author_pos, all_pos, by = "tag")
+author_pos <- arrange(author_pos, desc(all))
+author_pos <- ungroup(head(author_pos, 81))
+
+ggplot(author_pos) +
+  geom_col(aes(reorder(tag, all, FUN = min), n, fill = author)) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~ author) +
+  theme(legend.position = "none")
+```
+

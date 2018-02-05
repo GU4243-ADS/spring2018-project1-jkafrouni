@@ -33,35 +33,19 @@ library(wordcloud)
 library(ggridges)
 
 source("../lib/multiplot.R")
+
+# install.packages("openNLP")
+# install.packages("openNLPmodels.en", repos="http://datacube.wu.ac.at/" , type="source")
+# install.packages("NLP")
+library(rJava)
+library(NLP)
+library(openNLP)
+library(openNLPmodels.en)
+
+# NLP and ggplot2 both have a function named "annotate" which can cause a problem
+# loading NLP after ggplot seems to fix the pb ??
 ```
 
-## Read in the data
-The following code assumes that the dataset `spooky.csv` lives in a `data` folder (and that we are inside a `docs` folder).
-
-```{r}
-spooky <- read.csv('../data/spooky.csv', as.is = TRUE)
-```
-
-## An overview of the data structure and content
-
-Let's first remind ourselves of the structure of the data.
-```{r}
-head(spooky)
-summary(spooky)
-```
-
-```{r}
-# sum(is.na(spooky))
-# spooky$author <- as.factor(spooky$author)
-```
-
-## Data Cleaning
-
-```{r}
-# Make a table with one word per row and remove `stop words` (i.e. the common words).
-spooky_wrd <- unnest_tokens(spooky, word, text)
-spooky_wrd <- anti_join(spooky_wrd, stop_words, by = "word")
-```
 
 ## Word Frequency
 
@@ -96,53 +80,12 @@ ggplot(author_words) +
   theme(legend.position = "none")
 ```
 
-## Recall: number of sentences per author:
-
-```{r}
-ggplot(spooky) +
-  geom_bar(aes(author, fill = author)) +
-  theme(legend.position = "none")
-```
-
-## Punctuation
-
-```{r}
-spooky <- cbind(spooky, commas = mapply(function(x) str_count(x, ","), spooky$text))
-spooky <- cbind(spooky, semi_columns = mapply(function(x) str_count(x, ";"), spooky$text))
-spooky <- cbind(spooky, question = mapply(function(x) str_count(x, "\\?") > 0, spooky$text))
-spooky <- cbind(spooky, exclamation = mapply(function(x) str_count(x, "\\!") > 0, spooky$text))
-aggregate(commas ~ author, spooky, mean)
-aggregate(semi_columns ~ author, spooky, mean)
-aggregate(question ~ author, spooky, sum)
-aggregate(exclamation ~ author, spooky, sum)
-
-p1 <- ggplot(spooky, aes(x = commas, y = ..ncount.., fill = author)) + # use ..ncount.. to normalize the histogram (difft numbers of sentences per author)
-      xlim(c(0, 15)) +
-      geom_histogram(binwidth=1) +
-      theme(legend.position = "none")
-
-p2 <- ggplot(spooky, aes(x = semi_columns, y = ..ncount.., fill = author)) + # use ..ncount.. to normalize the histogram (difft numbers of sentences per author)
-      xlim(c(0, 10)) +
-      ylim(c(0,1)) +
-      geom_histogram(binwidth=1) +
-      theme(legend.position = "none")
-
-p3 <- ggplot(aggregate(question ~ author, spooky, sum), aes(x = author, y = question, fill = author)) +
-      geom_bar(stat="identity") +
-      theme(legend.position = "none")
-      
-
-p4 <- ggplot(aggregate(exclamation ~ author, spooky, sum), aes(x = author, y = exclamation, fill = author)) +
-      geom_bar(stat="identity") +
-      theme(legend.position = "none")
-
-
-layout <- matrix(c(1, 2, 1, 3), 2, 2, byrow = TRUE)
-multiplot(p1, p2, p3, layout = layout)
-```
+# Writing style
 
 ## Dialogue
 
+Pb: sometimes weird single " are in the text ??
+=> TODO
 ```{r}
 spooky <- cbind(spooky, dialogue = mapply(function(x) str_count(x, '\\"') > 1, spooky$text))
 spooky[spooky$dialogue == TRUE,]
@@ -151,45 +94,20 @@ aggregate(dialogue ~ author, spooky, sum)
 # ATTENTION A NORMALISER LES SOMMES !
 ```
 
-## Names in sentences
+
+## Entities
 
 ```{r}
-# TODO (but maybe in POS)
-# Number of uppercase except first character of the sentence:
-spooky <- cbind(spooky, uppercase = mapply(function(x) str_count(x, ".[A-Z]"), spooky$text))
-aggregate(uppercase ~ author, spooky, mean)
-summary(spooky[spooky$author == 'EAP',])
-# spooky[spooky$uppercase == 45,][1, 'text'] # outlier (text was not split properly)
+## Example:
+# s <- "Pierre Vinken, and Jerome Kafrounisu 61 years old, will join the board"
+# s <- as.String(s) # nécessite library(NLP) ?
+# sent_token_annotator <- Maxent_Sent_Token_Annotator()
+# word_token_annotator <- Maxent_Word_Token_Annotator()
+# a2 <- annotate(s, list(sent_token_annotator, word_token_annotator))
 
-hist(spooky[spooky$author == 'EAP',][, c('uppercase')])
-boxplot(spooky[spooky$author == 'EAP',][, c('uppercase')])
-```
-
-
-# Part of Speech
-
-```{r}
-# install.packages("openNLP")
-# install.packages("openNLPmodels.en", repos="http://datacube.wu.ac.at/" , type="source")
-# install.packages("NLP")
-library(rJava)
-library(NLP)
-library(openNLP)
-library(openNLPmodels.en)
-
-# NLP and ggplot2 both have a function named "annotate" which can cause a problem
-# loading NLP after ggplot seems to fix the pb ??
-```
-
-```{r}
-## Some text.
-s <- "Pierre Vinken, and Jerome Kafrounisu 61 years old, will join the board"
-s <- as.String(s) # nécessite library(NLP) ?
 ## Need sentence and word token annotations.
 sent_token_annotator <- Maxent_Sent_Token_Annotator()
 word_token_annotator <- Maxent_Word_Token_Annotator()
-# a2 <- annotate(s, list(sent_token_annotator, word_token_annotator))
-
 entity_annotator <- Maxent_Entity_Annotator(kind="person")
 
 # annotate(s, entity_annotator, a2)
@@ -200,30 +118,253 @@ contains_entity <- function(s) {
   length(subset(a3, type == "entity")) > 0
 }
 
-# contains_entity("Hello I'm Jerome Kafrouni")
-# mapply(contains_entity, head(spooky)$text)
-
 spooky <- cbind(spooky, has_entity = mapply(contains_entity, spooky$text))
+aggregate(has_entity ~ author, spooky, mean) # HPL and MWS use more entities
 
-spooky[spooky$has_entity == TRUE,]
-aggregate(has_entity ~ author, spooky, mean)
-
-
-# spooky[sample(nrow(spooky), 3), ] # sampling 3 rows
-
-# Full POS annotator:
-pos_tag_annotator <- Maxent_POS_Tag_Annotator()
-y1 <- annotate(spooky[1, 'text'], list(sent_token_annotator, word_token_annotator))
-y2 <- annotate(spooky[1, 'text'], pos_tag_annotator, y1)
-y2
 ```
 
+## Full POS:
 
-# Use of french words:
+### Split into tags
 
 ```{r}
-# TODO
+pos_tag_annotator <- Maxent_POS_Tag_Annotator()
+
+posify <- function(s) {
+  # given a string, replaces each word by corresponding POS tag
+  a1 <- annotate(s, list(sent_token_annotator, word_token_annotator))
+  a2 <- annotate(s, pos_tag_annotator, a1)
+  tags <- sapply(a2$features, `[[`, "POS")
+  do.call(paste, c(as.list(tags), sep=" "))
+}
+
+spooky <- cbind(spooky, pos = mapply(posify, spooky$text), stringsAsFactors=FALSE)
+spooky_pos <- unnest_tokens(spooky, tag, pos)
 ```
 
+### Tags frequency:
+
+```{r}
+# Counts number of times each author used each word.
+author_pos <- count(group_by(spooky_pos, tag, author))
+
+all_pos <- rename(count(group_by(spooky_pos, tag)), all = n)
+author_pos <- left_join(author_pos, all_pos, by = "tag")
+author_pos <- arrange(author_pos, desc(all))
+author_pos <- ungroup(head(author_pos, 81))
+
+ggplot(author_pos) +
+  geom_col(aes(reorder(tag, all, FUN = min), n, fill = author)) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~ author) +
+  theme(legend.position = "none")
+```
+
+
 # Diversity of the vocabulary:
+
+## Size of author's vocabulary
+
+How many different (unique) words does each author use ?
+```{r}
+EAP_words_count <- spooky_wrd[spooky_wrd$author == 'EAP',] %>% group_by(word) %>% summarise(count = n())
+HPL_words_count <- spooky_wrd[spooky_wrd$author == 'HPL',] %>% group_by(word) %>% summarise(count = n())
+MWS_words_count <- spooky_wrd[spooky_wrd$author == 'MWS',] %>% group_by(word) %>% summarise(count = n())
+
+# nb of unique words / total nb of words used: 
+dim(EAP_words_count)[1] / dim(spooky_wrd[spooky_wrd$author == 'EAP',])[1]
+dim(HPL_words_count)[1] / dim(spooky_wrd[spooky_wrd$author == 'HPL',])[1]
+dim(MWS_words_count)[1] / dim(spooky_wrd[spooky_wrd$author == 'MWS',])[1]
+
+ # how many times is a word used on average
+mean(EAP_words_count$count)
+mean(HPL_words_count$count)
+mean(MWS_words_count$count)
+```
+
+## Made up words
+
+Pbs of this technique: 1) OCR 2) age of the dictionnary
+
+```{r}
+is.word  <- function(x) x %in% GradyAugmented # or use any dataset from package
+
+author_words <- count(group_by(spooky_wrd, word, author))
+author_words$exists <- is.word(author_words$word)
+author_words %>% group_by(author) %>% summarise(mean(exists)) # percentage of words per author that are in dictionnary
+```
+
+## Words used by only one author:
+
+Idea: look at words (lemmas actually) that one author uses and the others don't. Look at the best TF-IDF of these words. This will show which words are deeply correlated with an author and part of their writing style.
+
+```{r}
+unique_wrd_EAP <- anti_join(spooky_wrd, spooky_wrd[spooky_wrd$author == 'EAP',], spooky_wrd[spooky_wrd$author != 'EAP',], by = "lemma")
+length(unique(unique_wrd_EAP[, c("lemma")])) # 7078
+
+unique_wrd_MWS <- anti_join(spooky_wrd, spooky_wrd[spooky_wrd$author == 'MWS',], spooky_wrd[spooky_wrd$author != 'MWS',], by = "lemma")
+length(unique(unique_wrd_MWS[, c("lemma")])) # 10276
+
+unique_wrd_HPL <- anti_join(spooky_wrd, spooky_wrd[spooky_wrd$author == 'HPL',], spooky_wrd[spooky_wrd$author != 'HPL',], by = "lemma")
+length(unique(unique_wrd_HPL[, c("lemma")])) # 7493
+```
+
+
+# Male vs female
+
+The goal is to find whether some author speak more about men or women, if they make them do or say particular things, if women speak more about emotions etc.
+
+## Her vs She:
+
+```{r}
+## spooky_wrd_with_stopwords <- unnest_tokens(spooky, word, text)
+author_words_with_stopwords <- count(group_by(spooky_wrd_with_stopwords, word, author))
+author_words_with_stopwords[author_words_with_stopwords$word %in% c('he', 'she', 'him', 'her', 'his'),]
+# TODO: plot
+
+ggplot(author_words_with_stopwords[author_words_with_stopwords$word %in% c('he', 'she', 'him', 'her', 'his'),], aes(x = word, fill = author)) +
+      geom_histogram(binwidth=1)
+# TODO: add male and female names
+```
+
+## Bi-grams male vs female
+
+Doing this with or without lemmatization doesn't change the results too much (because anyway after a pronoun the word is likely to be a conjugated verb, most of the time in past tense).
+
+```{r}
+# https://juliasilge.com/blog/gender-pronouns/
+  
+## spooky_bigrams <- unnest_tokens(spooky, bigram, text, token = "ngrams", n = 2)
+
+# TODO: do this with lemmatazation first
+
+pronouns <- c("he", "she")
+
+bigram_counts <- group_by(spooky_bigrams, bigram, author) %>%
+    count(bigram, sort = TRUE) %>%
+    separate(bigram, c("word1", "word2"), sep = " ") %>%
+    filter(word1 %in% pronouns) %>%
+    count(word1, word2, wt = n, sort = TRUE) %>%
+    rename(total = nn)
+
+bigram_counts
+
+word_ratios <- bigram_counts %>%
+    group_by(word2, author) %>%
+    filter(sum(total) > 10) %>%
+    ungroup() %>%
+    spread(word1, total, fill = 0) %>%
+    mutate_if(is.numeric, funs((. + 1) / sum(. + 1))) %>%
+    mutate(logratio = log2(she / he)) %>%
+    arrange(desc(logratio))
+
+word_ratios %>% 
+    arrange(abs(logratio))
+
+word_ratios
+
+# TODO: print properly by author (word_ratios is by author)
+
+
+word_ratios %>%
+    mutate(abslogratio = abs(logratio)) %>%
+    group_by(logratio < 0) %>%
+    top_n(15, abslogratio) %>%
+    ungroup() %>%
+    mutate(word = reorder(word2, logratio)) %>%
+    ggplot(aes(word, logratio, color = logratio < 0)) +
+    geom_segment(aes(x = word, xend = word,
+                     y = 0, yend = logratio), 
+                 size = 1.1, alpha = 0.6) +
+    geom_point(size = 3.5) +
+    coord_flip() +
+    labs(x = NULL, 
+         y = "Relative appearance after 'she' compared to 'he'",
+         title = "Words paired with 'he' and 'she' in HPL") +
+    scale_color_discrete(name = "", labels = c("More 'she'", "More 'he'")) +
+    scale_y_continuous(breaks = seq(-3, 3),
+                       labels = c("0.125x", "0.25x", "0.5x", 
+                                  "Same", "2x", "4x", "8x"))
+
+```
+```{r}
+bigram_counts <- spooky_bigrams[spooky_bigrams$author == 'EAP',] %>%
+    count(bigram, sort = TRUE) %>%
+    separate(bigram, c("word1", "word2"), sep = " ") %>%
+    filter(word1 %in% pronouns) %>%
+    count(word1, word2, wt = n, sort = TRUE) %>%
+    rename(total = nn)
+
+bigram_counts
+
+word_ratios <- bigram_counts %>%
+    group_by(word2) %>%
+    filter(sum(total) > 10) %>%
+    ungroup() %>%
+    spread(word1, total, fill = 0) %>%
+    mutate_if(is.numeric, funs((. + 1) / sum(. + 1))) %>%
+    mutate(logratio = log2(she / he)) %>%
+    arrange(desc(logratio))
+
+word_ratios %>% 
+    arrange(abs(logratio))
+
+word_ratios %>%
+    mutate(abslogratio = abs(logratio)) %>%
+    group_by(logratio < 0) %>%
+    top_n(15, abslogratio) %>%
+    ungroup() %>%
+    mutate(word = reorder(word2, logratio)) %>%
+    ggplot(aes(word, logratio, color = logratio < 0)) +
+    geom_segment(aes(x = word, xend = word,
+                     y = 0, yend = logratio), 
+                 size = 1.1, alpha = 0.6) +
+    geom_point(size = 3.5) +
+    coord_flip() +
+    labs(x = NULL, 
+         y = "Relative appearance after 'she' compared to 'he'",
+         title = "Words paired with 'he' and 'she' in EAP") +
+    scale_color_discrete(name = "", labels = c("More 'she'", "More 'he'")) +
+    scale_y_continuous(breaks = seq(-3, 3),
+                       labels = c("0.125x", "0.25x", "0.5x", 
+                                  "Same", "2x", "4x", "8x"))
+
+```
+
+# TF-IDF with lemmas
+
+Doesn't change anything
+
+
+
+# Readability
+
+There exist several indexes to measure how "readable" sentences are, which compare the number of syllables of the words used and the length of the sentence. These indexes estimate the years of formal education a person needs to understand the text on the first reading.
+
+The fog index is commonly used to confirm that text can be read easily by the intended audience. Texts for a wide audience generally need a fog index less than 12. Texts requiring near-universal understanding generally need an index less than 8.
+
+Gunning Fog: 12 = High school senior | 14 = College sophomore | 17 = College graduate
+
+```{r}
+# with(spooky[spooky$author == 'EAP',], readability(text, NULL)) # 11.1 score | 14.6 Gunning Fog
+# with(spooky[spooky$author == 'MWS',], readability(text, NULL)) # 11.5 score | 14.7 Gunning Fog
+# with(spooky[spooky$author == 'HPL',], readability(text, NULL)) # 11.5 score | 14.6 Gunning Fog
+
+x <- with(spooky, readability(text, author))
+plot(x)
+```
+
+On average, the authors are almost as readable accross all sentences. let's look at readability per sentence.
+
+```{r}
+x2 <- with(spooky, readability(text, list(author, id)))
+x2
+```
+```{r}
+ggplot(x2, aes(x = Gunning_Fog_Index, fill = author)) +
+      geom_histogram(binwidth=1) +
+      xlim(c(0, 40)) + # there are outliers
+      theme(legend.position = "none")
+```
 
