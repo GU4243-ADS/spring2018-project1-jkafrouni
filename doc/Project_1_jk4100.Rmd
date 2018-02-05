@@ -10,7 +10,7 @@ output:
 # Section 0: Installing and loading packages
 
 ```{r}
-packages.used <- c("ggplot2", "dplyr", "tibble", "tidyr",  "stringr", "tidytext", "topicmodels", "wordcloud", "ggridges")
+packages.used <- c("ggplot2", "dplyr", "tibble", "tidyr",  "stringr", "tidytext", "topicmodels", "wordcloud", "ggridges", "rJava", "NLP", "openNLP", "textstem", "qdapDictionaries", "lexicon", "syllable", "readability", "randomForest")
 
 # check packages that need to be installed.
 packages.needed <- setdiff(packages.used, intersect(installed.packages()[,1], packages.used))
@@ -32,36 +32,29 @@ library(ggridges)
 
 source("../lib/multiplot.R")
 
-# install.packages("openNLP")
-# install.packages("openNLPmodels.en", repos="http://datacube.wu.ac.at/" , type="source")
-# install.packages("NLP")
+library(textstem)
+library(qdapDictionaries)
+library(lexicon)
+library(syllable)
+library(readability)
+library(randomForest)
+```
+
+## Part of Speech
+
+You might have trouble installing the requirements for Part of Speech analysis (Section 4), especially if running on Mac. The steps necessary to make rJava work can be found here: https://github.com/snowflakedb/dplyr-snowflakedb/wiki/Configuring-R-rJava-RJDBC-on-Mac-OS-X.
+One main step is to launch R from the terminal and specify where to find rJava, with: "LD_LIBRARY_PATH=`/usr/libexec/java_home`/jre/lib/server open -a rstudio".
+
+```{r}
+# Part of Speech:
+
+install.packages("openNLPmodels.en", repos="http://datacube.wu.ac.at/" , type="source")
 library(rJava)
 library(NLP)
 library(openNLP)
 library(openNLPmodels.en)
 # NLP and ggplot2 both have a function named "annotate" which can cause a problem
-# loading NLP after ggplot seems to fix the pb ??
-
-# install.packages("textstem")
-library(textstem)
-
-# install.packages('qdapDictionaries')
-library(qdapDictionaries)
-
-library(lexicon)
-
-# install.packages("syllable")
-# install.packages("readability")
-library(syllable)
-library(readability)
-
-# install.packages("lexicon")
-# library(lexicon)
-# available_data()
-# common_names
-
-# install.packages('randomForest')
-library(randomForest)
+# loading NLP after ggplot seems to fix the problem.
 ```
 
 # Section 1: Data preparation
@@ -138,7 +131,8 @@ p2 <- ggplot(spooky[spooky$semi_colons < 6,], aes(x = semi_colons, y = ..density
       geom_histogram(binwidth=1) +
       theme(legend.position = "none")
 
-p3 <- ggplot(aggregate(question ~ author, spooky, sum), aes(x = author, y = question, fill = author)) +
+
+p3 <- ggplot(aggregate(question ~ author, spooky, mean), aes(x = author, y = question, fill = author)) +
       geom_bar(stat="identity") +
       theme(legend.position = "none")
 
@@ -161,7 +155,7 @@ We notice that these sentences contain no exclamation mark. This result is odd, 
 We also notice that authors almost do not use colons, which was not expected.
 For this reason, we did not plot these two variables.
 
-Among these three variables, one that is very interesting is questions: HP Lovecraft seems to use much less questions than Mary Shelly or Edgar Allan Poe.
+Among these three variables, one that is very interesting is questions: HP Lovecraft seems to use much less (almost twice less) questions than Mary Shelly or Edgar Allan Poe. We'll see in Section 4 that one reason might be that HP Lovecraft uses less dialogue.
 
 ### 2.1.2 - Punctuation words ratio
 
@@ -169,13 +163,20 @@ The use of punctuation seems to be quite specific to each author. We looked at h
 
 To compute this feature, we split the strings using the regex "\\W+" This is the most direct way to do it,
 Otherwise we could use the dataframe spooky_wrd (group by id, count, and join with spooky)
+
 ```{r}
 spooky <- cbind(spooky, punctuation = mapply(function(x) str_count(x, "[?!,;:.-]") / (str_count(x, "\\W+") + 1), spooky$text))
 
 ggplot(spooky, aes(x = punctuation, y = ..density.., fill = author)) + 
       geom_histogram() +
       xlim(c(0,1))
+
+ggplot(spooky[spooky$punctuation < 1,], aes(x = author, y = punctuation, fill = author)) + 
+  geom_boxplot()
 ```
+
+We notice that, on average, HP Lovecraft uses less punctuation, and the variance of the punctuation frequency is lower for him, which means that he tends to use often the same amount of punctuation.
+Note that we got rid of outliers that come from the data (csv) preparation.
 
 ### 2.1.3 - Uppercase
 
@@ -188,7 +189,13 @@ aggregate(uppercase_freq ~ author, spooky, mean)
 ggplot(spooky[spooky$uppercase_freq < 0.15,]) +
   geom_histogram(aes(x = uppercase_freq, y = ..density.., fill = author)) +
   xlim(c(0, 0.15))
+
+ggplot(spooky[spooky$uppercase_freq < 0.25,], aes(x = author, y = uppercase_freq, fill = author)) + 
+  geom_boxplot()
 ```
+
+Uppercase doesn't seem to be very informative, it seems that they have quite similar distributions for this variable which means that they use uppercase the same way. 
+Differences on the use of uppercase would have been helpful for example to know if authors tend to use more entities, names for example. Even though we canno conclude here, we'll have a deeper look at this in the following sections.
 
 ### 2.1.4 - Sentence length
 
@@ -203,6 +210,8 @@ ggplot(spooky[spooky$sen_length < 1200,], aes(x = author, y = sen_length, fill =
   geom_boxplot()
 ```
 
+HP Lovecraft seems to use slightly longer sentences on average.
+
 ### 2.1.5 - Average word length in sentence
 
 Now that we have compared lengths of sentences, let's look at length of the words themselves. Instead of just looking at words individually (which we have done in the in-class tutorial), we'll look at the average length of words in each sentence.
@@ -213,7 +222,12 @@ spooky <- inner_join(lengths, spooky, by="id")
 ggplot(spooky, aes(x = avg_word_length, y = ..density.., fill = author)) + 
   geom_histogram() +
   xlim(c(3,13))
+
+ggplot(spooky[spooky$avg_word_length < 15,], aes(x = author, y = avg_word_length, fill = author)) + 
+  geom_boxplot()
 ```
+
+The three distributions are quite similar, with higher variance for Edgar Allan Poe which means that he's less constant in the length of the words that he uses and often uses either very short or very long words.
 
 ### 2.1.6 - Readability
 
@@ -225,15 +239,11 @@ The fog index is commonly used to confirm that text can be read easily by the in
 Gunning Fog: 12 = High school senior | 14 = College sophomore | 17 = College graduate
 
 ```{r}
-# with(spooky[spooky$author == 'EAP',], readability(text, NULL)) # 11.1 score | 14.6 Gunning Fog
-# with(spooky[spooky$author == 'MWS',], readability(text, NULL)) # 11.5 score | 14.7 Gunning Fog
-# with(spooky[spooky$author == 'HPL',], readability(text, NULL)) # 11.5 score | 14.6 Gunning Fog
-
 x <- with(spooky, readability(text, author))
 plot(x)
 ```
 
-On average, the authors are almost as readable accross all sentences. let's look at readability per sentence.
+On average, the authors are almost as readable accross all sentences. Let's look at readability per sentence.
 
 ```{r}
 x2 <- with(spooky, readability(text, list(author, id)))
@@ -242,19 +252,20 @@ ggplot(x2, aes(x = Gunning_Fog_Index, fill = author)) +
       geom_histogram(binwidth=1) +
       xlim(c(0, 40)) + # there are outliers
       theme(legend.position = "none")
+
+ggplot(x2[x2$Gunning_Fog_Index < 40,], aes(x = author, y = Gunning_Fog_Index, fill = author)) + 
+  geom_boxplot()
 ```
+
+Readability doesn't seem to be very informative about the authors, the distributions are close, with a slightly higher variance for Edgar Allan Poe.
 
 ## 2.2 - How well do these features characterize the authors ?
 
-### 2.2.1 - Metrics: TODO
-
-### 2.2.2 - Classification
-
 We'll use a popular Machine Learning model used for classification, a Random Forest, to try to classify the sentences using *only* the numerical features generated (i.e. without including features about the words themselves). Even though we'll not reach a very high accuracy, we might get quite good results.
 
-Features we'll use: commas, semi_coloms, sen_length, avg_word_length, punctuation, uppercase_freq, (question, exclamation ??).
+We won't use the features uppercase_freq, avg_word_length, and readability, since we saw earlier that they do not characterize the authors very well.
 
-#### 2.2.2.1 - Multiclass model (EAP vs MWS vs HPL)
+### 2.2.1 - Multiclass model (EAP vs MWS vs HPL)
 
 ```{r}
 # Split train test:
@@ -270,7 +281,7 @@ train <- spooky[train_ind, ]
 test <- spooky[-train_ind, ]
 
 # Fit random forest:
-fit <- randomForest(as.factor(author) ~ commas + semi_colons + sen_length + uppercase_freq + punctuation + avg_word_length,
+fit <- randomForest(as.factor(author) ~ commas + semi_colons + sen_length + punctuation,
                       data=train, 
                       importance=TRUE, 
                       ntree=2000)
@@ -284,7 +295,7 @@ mean(test_pred == test$author) # 50 % accuracy = better than 1/3
 
 We get an accuracy of approximately 50%. Since we have three classes, we should compare this accuracy to a 33% base accuracy, which we would get by classifying randomly the sentences. This result shows that the numerical feature that we generated give some insights about how the authors write.
 
-#### 2.2.2.2 - One vs All model
+#### 2.2.2 - One vs All model
 
 Let's now look at each author individually: We'll re-train the model but now look at each author and try to classify a sentence by an attribute which is whether it was written by this author or by any of the two other authors.
 
@@ -316,7 +327,7 @@ table(test_pred, test$HPL)
 mean(test_pred == test$HPL)
 
 # Fit random forest for MWS:
-fit <- randomForest(as.factor(MWS) ~  commas + semi_colons + sen_length + uppercase_freq + punctuation + avg_word_length,
+fit <- randomForest(as.factor(MWS) ~  commas + semi_colons + sen_length + punctuation,
                       data=train, 
                       importance=TRUE, 
                       ntree=2000)
@@ -327,8 +338,8 @@ importance(fit)
 table(test_pred, test$MWS)
 mean(test_pred == test$MWS)
 
-# Fit random forest for HPL:
-fit <- randomForest(as.factor(HPL) ~  commas + semi_colons + sen_length + uppercase_freq + punctuation + avg_word_length,
+# Fit random forest for EAP:
+fit <- randomForest(as.factor(EAP) ~  commas + semi_colons + sen_length + punctuation,
                       data=train, 
                       importance=TRUE, 
                       ntree=2000)
@@ -336,8 +347,8 @@ fit <- randomForest(as.factor(HPL) ~  commas + semi_colons + sen_length + upperc
 test_pred <- predict(fit, test)
 
 importance(fit)
-table(test_pred, test$HPL)
-mean(test_pred == test$HPL)
+table(test_pred, test$EAP)
+mean(test_pred == test$EAP)
 # MWS: 70 % accuracy, EAP: 65 %, HPL: 73 %
 ```
 
@@ -450,21 +461,6 @@ author_words %>% group_by(author) %>% summarise(mean(exists)) # percentage of wo
 ```
 We can see that Mary Shelley uses 6 % more words that are in our dictionnary. This is not surprising at all ! Edgar Allan Poe and HP Lovecraft are known for this (see link above), and actually created words that are now used commonly, which we could observe if we had a dataset of words from the 19th century (which I haven't been able to find unfortunately).
 
-### 3.4.3 - Words used by only one author:
-
-Here the idea is to look at words (lemmas actually) that one author uses and the others don't. Look at the best TF-IDF of these words. This will show which words are deeply correlated with an author and part of their writing style.
-
-```{r}
-unique_wrd_EAP <- anti_join(spooky_wrd, spooky_wrd[spooky_wrd$author == 'EAP',], spooky_wrd[spooky_wrd$author != 'EAP',], by = "lemma")
-length(unique(unique_wrd_EAP[, c("lemma")])) # 7078
-
-unique_wrd_MWS <- anti_join(spooky_wrd, spooky_wrd[spooky_wrd$author == 'MWS',], spooky_wrd[spooky_wrd$author != 'MWS',], by = "lemma")
-length(unique(unique_wrd_MWS[, c("lemma")])) # 10276
-
-unique_wrd_HPL <- anti_join(spooky_wrd, spooky_wrd[spooky_wrd$author == 'HPL',], spooky_wrd[spooky_wrd$author != 'HPL',], by = "lemma")
-length(unique(unique_wrd_HPL[, c("lemma")])) # 7493
-```
-
 
 ## 3.5 - Male vs Female representation
 
@@ -556,7 +552,8 @@ spooky <- cbind(spooky, dialogue = mapply(function(x) str_count(x, '\\"'), spook
 aggregate(dialogue ~ author, spooky, mean)
 ```
 
-We can see that Edgar Allan Poe uses dialogue far more often, more than 10% of his sentences contain a quotation mark ! HP Lovecraft uses dialogue 5 times less, and Mary Shelly only twice less.
+We can see that Edgar Allan Poe uses dialogue far more often, more than 10% of his sentences contain a quotation mark ! HP Lovecraft uses dialogue 5 times less, and Mary Shelly only twice less. 
+Recall that we saw in Section 2 that HP Lovecraft uses twice less questions than the two other authors: Intuitively, we could say that questions and dialogues are correlated, since we can imagine that authors use more questions inside dialogues than in plain text.
 
 ## 4.2 - Entities
 
